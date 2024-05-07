@@ -1,0 +1,139 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel DiffuseDensity
+#pragma kernel AdvectDensity
+#pragma kernel SwapDensity
+#pragma kernel DiffuseVelocity
+#pragma kernel AdvectDensity
+#pragma kernel Project
+#pragma kernel SwapVelocity
+
+
+struct fluid{
+    float densityOld;
+    float densityNew;
+    float2 velocityOld;
+    float2 velocityNew;
+    float p;
+};
+RWStructuredBuffer<fluid> fluidData;
+RWTexture2D<float4> Density;
+float diffusionFactor;
+uint2 densityAdd;
+bool enabled;
+int indexFromId(uint3 id){
+    return id.x + 1920.0 * (id.y + 1080.0 * id.z);
+}
+int indexFromIdCoords(uint x,uint y, uint z){
+    return x + 1920.0 * (y + 1080.0 * z);
+}
+void diffusionDensity(uint3 id){
+    for(int i = 0; i<20; i++){
+        fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityNew = (fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityOld +  diffusionFactor * (fluidData[indexFromIdCoords(id.x+1,id.y,id.z)].densityNew + 
+        fluidData[indexFromIdCoords(id.x-1,id.y,id.z)].densityNew+
+        fluidData[indexFromIdCoords(id.x,id.y+1,id.z)].densityNew+
+        fluidData[indexFromIdCoords(id.x,id.y-1,id.z)].densityNew))/(1+4*diffusionFactor);
+    }
+}
+void diffusionVelocity(uint3 id){
+    for(int i = 0; i<20; i++){
+        fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityNew = (fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityOld +  diffusionFactor * (fluidData[indexFromIdCoords(id.x+1,id.y,id.z)].velocityNew + 
+        fluidData[indexFromIdCoords(id.x-1,id.y,id.z)].velocityNew+
+        fluidData[indexFromIdCoords(id.x,id.y+1,id.z)].velocityNew+
+        fluidData[indexFromIdCoords(id.x,id.y-1,id.z)].velocityNew))/(1+4*diffusionFactor);
+    }
+}
+
+void advectionDensity(uint3 id){
+    
+    float velX = fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityOld.x;
+    float velY = fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityOld.y;
+    
+    fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityNew = fluidData[indexFromIdCoords(id.x-velX,id.y-velY,id.z)].densityOld; 
+}
+
+void advectionVelocity(uint3 id){
+    float velX = fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityOld.x;
+    float velY = fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityOld.y;
+    
+    fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityNew = fluidData[indexFromIdCoords(id.x-velX,id.y-velY,id.z)].velocityOld;
+}
+void addDensity(uint3 id){
+    if(id.x == densityAdd.x && id.y == densityAdd.y && enabled){
+        fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityOld += 10;
+        fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityOld += uint2(0,-1);
+    }
+    
+}
+
+
+void projectVelocity(uint3 id){
+
+    float delV = .1*(fluidData[indexFromIdCoords(id.x+1,id.y,id.z)].velocityNew.x - 
+    fluidData[indexFromIdCoords(id.x-1,id.y,id.z)].velocityNew.x +
+    fluidData[indexFromIdCoords(id.x,id.y+1,id.z)].velocityNew.y - 
+    fluidData[indexFromIdCoords(id.x,id.y-1,id.z)].velocityNew.y)/2.0;
+
+    for(int i = 0;i<20;i++){
+        fluidData[indexFromIdCoords(id.x,id.y,id.z)].p = ((fluidData[indexFromIdCoords(id.x+1,id.y,id.z)].p +
+        fluidData[indexFromIdCoords(id.x-1,id.y,id.z)].p +
+        fluidData[indexFromIdCoords(id.x,id.y+1,id.z)].p + 
+        fluidData[indexFromIdCoords(id.x,id.y-1,id.z)].p) - delV)/4.0;
+    }
+
+    fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityNew -= float2((fluidData[indexFromIdCoords(id.x+1,id.y,id.z)].p - 
+    fluidData[indexFromIdCoords(id.x-1,id.y,id.z)].p)/2.0 ,
+    (fluidData[indexFromIdCoords(id.x,id.y+1,id.z)].p  - 
+    fluidData[indexFromIdCoords(id.x,id.y-1,id.z)].p)/2.0);
+}
+void densityAlgorithm(uint3 id){
+    addDensity(id);
+    diffusionDensity(id);
+    //advectionDensity(id);
+    Density[id.xy] = fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityNew;
+
+}/*
+void velocityAlgorithm(uint3 id){
+  
+    diffusionVelocity(id);
+    //projectVelocity(id);
+    advectionVelocity(id);
+    //projectVelocity(id);
+}*/
+[numthreads(8,8,1)]
+void DiffuseDensity (uint3 id : SV_DispatchThreadID)
+{
+    addDensity(id);
+    diffusionDensity(id);
+}
+[numthreads(8,8,1)]
+void AdvectDensity(uint3 id : SV_DispatchThreadID){
+    advectionDensity(id);
+    //Density[id.xy] = float4(1,0,0,0);
+}
+[numthreads(8,8,1)]
+void SwapDensity(uint3 id: SV_DispatchThreadID)
+{
+    fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityOld = fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityNew;
+    Density[id.xy] = fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityNew;
+}
+[numthreads(8,8,1)]
+void DiffuseVelocity(uint3 id: SV_DispatchThreadID)
+{
+    diffusionVelocity(id);
+    
+}
+[numthreads(8,8,1)]
+void AdvectVelocity(uint3 id: SV_DispatchThreadID)
+{
+    advectionVelocity(id);
+}
+[numthreads(8,8,1)]
+void Project(uint3 id: SV_DispatchThreadID)
+{
+    projectVelocity(id);
+}
+[numthreads(8,8,1)]
+void SwapVelocity(uint3 id: SV_DispatchThreadID){
+    fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityOld = fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityNew;
+    //Density[id.xy] = fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityNew;
+}
