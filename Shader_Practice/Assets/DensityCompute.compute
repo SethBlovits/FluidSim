@@ -1,16 +1,13 @@
 // Each #kernel tells which function to compile; you can have many kernels
 #pragma kernel DiffuseDensity
 #pragma kernel AdvectDensity
-#pragma kernel SwapDensity
 #pragma kernel DiffuseVelocity
 #pragma kernel AdvectVelocity
-#pragma kernel Project
-#pragma kernel SwapVelocity
-#pragma kernel Draw
-#pragma kernel swapP
 #pragma kernel findDivergence
-
-
+#pragma kernel solveP
+#pragma kernel gradient
+#pragma kernel swapVelocity
+#pragma kernel Draw
 
 struct fluid{
     float densityOld;
@@ -23,143 +20,136 @@ struct fluid{
     
 };
 RWStructuredBuffer<fluid> fluidData;
+RWStructuredBuffer<float> densityNew;
+RWStructuredBuffer<float> densityOld;
+RWStructuredBuffer<float> velocityNewx;
+RWStructuredBuffer<float> velocityNewy;
+RWStructuredBuffer<float> velocityOldx;
+RWStructuredBuffer<float> velocityOldy;
+RWStructuredBuffer<float> p;
+RWStructuredBuffer<float> delV;
 RWTexture2D<float4> Density;
 float diffusionFactor;
 uint2 densityAdd;
 bool enabled;
-uint width;
-uint height;
-float4 _Time;
-int indexFromId(uint3 id){
+uint N;
+float dt;
+float velocityDiffusion;
+/*int indexFromId(uint3 id){
     return id.x + width * (id.y + height * id.z);
 }
 int indexFromIdCoords(uint x,uint y, uint z){
     return x + width * (y + height * z);
+}*/
+int IX(uint x,uint y){
+    return x + y * (N);
 }
-void setBoundaryDensity(uint3 id){
+void setBnd(uint3 id, uint b, RWStructuredBuffer<float> x){
     
-    if(id.x == 10){
-        fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityNew = fluidData[indexFromIdCoords(id.x+1,id.y,id.z)].densityNew;
-    }
-    if(id.x == width){
-        fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityNew = fluidData[indexFromIdCoords(id.x-1,id.y,id.z)].densityNew;
-    }
-    if(id.y == 10){
-        fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityNew = fluidData[indexFromIdCoords(id.x,id.y+1,id.z)].densityNew;
-    }
-    if(id.y == height){
-        fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityNew = fluidData[indexFromIdCoords(id.x,id.y-1,id.z)].densityNew;
-    }
+    x[IX(id.x, 0)] = b == 2 ? -x[IX(id.x, 1)] : x[IX(id.x, 1)];
+    x[IX(id.x, N - 1)] = b == 2 ? -x[IX(id.x, N - 2)] : x[IX(id.x, N - 2)];
     
-    fluidData[indexFromIdCoords(0,0,id.z)].densityNew = (fluidData[indexFromIdCoords(1,0,id.z)].densityNew + fluidData[indexFromIdCoords(0,1,id.z)].densityNew)/2;
-    fluidData[indexFromIdCoords(width,0,id.z)].densityNew = (fluidData[indexFromIdCoords(width-1,0,id.z)].densityNew + fluidData[indexFromIdCoords(width,1,id.z)].densityNew)/2;
-    fluidData[indexFromIdCoords(0,height,id.z)].densityNew = (fluidData[indexFromIdCoords(1,height,id.z)].densityNew + fluidData[indexFromIdCoords(0,height - 1,id.z)].densityNew)/2;
-    fluidData[indexFromIdCoords(width,height,id.z)].densityNew = (fluidData[indexFromIdCoords(width-1,height,id.z)].densityNew + fluidData[indexFromIdCoords(width,height - 1,id.z)].densityNew)/2;
+    
+    x[IX(0, id.y)] = b == 1 ? -x[IX(1, id.y)] : x[IX(1, id.y)];
+    x[IX(N - 1, id.y)] = b == 1 ? -x[IX(N - 2, id.y)] : x[IX(N - 2, id.y)];
+    
+    if(id.x == 0 && id.y == 0){
+         x[IX(0, 0)] = 0.5f * (x[IX(1, 0)] + x[IX(0, 1)]);
+    }
+    if(id.x == 0 && id.y == N-1){
+        x[IX(0, N - 1)] = 0.5f * (x[IX(1, N - 1)] + x[IX(0, N - 2)]);
+    }
+    if(id.x == N-1 && id.y == 0){
+        x[IX(N - 1, 0)] = 0.5f * (x[IX(N - 2, 0)] + x[IX(N - 1, 1)]);
+    }
+    if(id.x == N-1 && id.y == N-1){
+        x[IX(N - 1, N - 1)] = 0.5f * (x[IX(N - 2, N - 1)] + x[IX(N - 1, N - 2)]);
+    } 
+    
 }
-void setBoundaryVelocity(uint3 id){
-    if(id.x == 10){
-        fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityNew.x = -1 * fluidData[indexFromIdCoords(id.x+1,id.y,id.z)].velocityNew.x;
-    }
-    if(id.x == width){
-        fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityNew.x =  -1 * fluidData[indexFromIdCoords(id.x-1,id.y,id.z)].velocityNew.x;
-    }
-    if(id.y == 10){
-        fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityNew.y = -1 * fluidData[indexFromIdCoords(id.x,id.y+1,id.z)].velocityNew.y;
-    }
-    if(id.y == height){
-        fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityNew.y = -1 * fluidData[indexFromIdCoords(id.x,id.y-1,id.z)].velocityNew.y;
-    }
-    fluidData[indexFromIdCoords(0,0,id.z)].velocityNew = (fluidData[indexFromIdCoords(1,0,id.z)].velocityNew + fluidData[indexFromIdCoords(0,1,id.z)].velocityNew)/2;
-    fluidData[indexFromIdCoords(width,0,id.z)].velocityNew = (fluidData[indexFromIdCoords(width-1,0,id.z)].velocityNew + fluidData[indexFromIdCoords(width,1,id.z)].velocityNew)/2;
-    fluidData[indexFromIdCoords(0,height,id.z)].velocityNew = (fluidData[indexFromIdCoords(1,height,id.z)].velocityNew + fluidData[indexFromIdCoords(0,height - 1,id.z)].velocityNew)/2;
-    fluidData[indexFromIdCoords(width,height,id.z)].velocityNew = (fluidData[indexFromIdCoords(width-1,height,id.z)].velocityNew + fluidData[indexFromIdCoords(width,height - 1,id.z)].velocityNew)/2;
+void diffusion(uint3 id,uint b,RWStructuredBuffer<float> x,RWStructuredBuffer<float> x0,float diff){
+    //need to change scaler
+    float scaler = dt* diff * (N-2)*(N-2);
+    x[IX(id.x,id.y)] = (x0[IX(id.x,id.y)] +  scaler * (x[IX(id.x+1,id.y)] + 
+    x[IX(id.x-1,id.y)]+
+    x[IX(id.x,id.y+1)]+
+    x[IX(id.x,id.y-1)]))/(1+4*scaler);
+    setBnd(id,b,x);
 }
+void advection(uint3 id,RWStructuredBuffer<float> d ,RWStructuredBuffer<float> d0,RWStructuredBuffer<float> velocX, RWStructuredBuffer<float> velocY, float dt,uint b){
+    float i0, i1, j0, j1;
 
-void setBoundarydelV(uint3 id){
-    if(id.x == 10){
-        fluidData[indexFromIdCoords(id.x,id.y,id.z)].delV = fluidData[indexFromIdCoords(id.x+1,id.y,id.z)].delV;
-    }
-    if(id.x == width){
-        fluidData[indexFromIdCoords(id.x,id.y,id.z)].delV = fluidData[indexFromIdCoords(id.x-1,id.y,id.z)].delV;
-    }
-    if(id.y == 10){
-        fluidData[indexFromIdCoords(id.x,id.y,id.z)].delV = fluidData[indexFromIdCoords(id.x,id.y+1,id.z)].delV;
-    }
-    if(id.y == height){
-        fluidData[indexFromIdCoords(id.x,id.y,id.z)].delV = fluidData[indexFromIdCoords(id.x,id.y-1,id.z)].delV;
-    }
-    fluidData[indexFromIdCoords(0,0,id.z)].delV = (fluidData[indexFromIdCoords(1,0,id.z)].delV + fluidData[indexFromIdCoords(0,1,id.z)].delV)/2;
-    fluidData[indexFromIdCoords(width,0,id.z)].delV = (fluidData[indexFromIdCoords(width-1,0,id.z)].delV + fluidData[indexFromIdCoords(width,1,id.z)].delV)/2;
-    fluidData[indexFromIdCoords(0,height,id.z)].delV = (fluidData[indexFromIdCoords(1,height,id.z)].delV + fluidData[indexFromIdCoords(0,height - 1,id.z)].delV)/2;
-    fluidData[indexFromIdCoords(width,height,id.z)].delV = (fluidData[indexFromIdCoords(width-1,height,id.z)].delV + fluidData[indexFromIdCoords(width,height - 1,id.z)].delV)/2;
+    float dtx = dt * (N - 2);
+    float dty = dt * (N - 2);
+
+    float s0, s1, t0, t1;
+    float tmp1, tmp2, x, y;
+
+    float Nfloat = N - 2;
+    float ifloat, jfloat;
+    ifloat = id.x;
+    jfloat = id.y;
+    tmp1 = dtx * velocX[IX(id.x, id.y)];
+    tmp2 = dty * velocY[IX(id.x, id.y)];
+    x = ifloat - tmp1;
+    y = jfloat - tmp2;
+
+    if (x < 0.5) x = 0.5f;
+    if (x > Nfloat + 0.5) x = Nfloat + 0.5f;
+    i0 = floor(x);
+    i1 = i0 + 1.0f;
+    if (y < 0.5) y = 0.5f;
+    if (y > Nfloat + 0.5f) y = Nfloat + 0.5f;
+    j0 = floor(y);
+    j1 = j0 + 1.0f;
+
+    s1 = x - i0;
+    s0 = 1.0f - s1;
+    t1 = y - j0;
+    t0 = 1.0f - t1;
+
+    int i0i = (int)i0;
+    int i1i = (int)i1;
+    int j0i = (int)j0;
+    int j1i = (int)j1;
+
+    d[IX(id.x, id.y)] =
+        s0 * (t0 * d0[IX(i0i, j0i)] + t1 * d0[IX(i0i, j1i)]) +
+        s1 * (t0 * d0[IX(i1i, j0i)] + t1 * d0[IX(i1i, j1i)]);
+    
+    setBnd(id,b,d);
+    //set_bnd(b, d);
 }
-void setBoundaryP(uint3 id){
-    if(id.x == 10){
-        fluidData[indexFromIdCoords(id.x,id.y,id.z)].delV = fluidData[indexFromIdCoords(id.x+1,id.y,id.z)].p_new;
-    }
-    if(id.x == width){
-        fluidData[indexFromIdCoords(id.x,id.y,id.z)].delV = fluidData[indexFromIdCoords(id.x-1,id.y,id.z)].p_new;
-    }
-    if(id.y == 10){
-        fluidData[indexFromIdCoords(id.x,id.y,id.z)].delV = fluidData[indexFromIdCoords(id.x,id.y+1,id.z)].p_new;
-    }
-    if(id.y == height){
-        fluidData[indexFromIdCoords(id.x,id.y,id.z)].delV = fluidData[indexFromIdCoords(id.x,id.y-1,id.z)].p_new;
-    }
-    fluidData[indexFromIdCoords(0,0,id.z)].p_new = (fluidData[indexFromIdCoords(1,0,id.z)].p_new + fluidData[indexFromIdCoords(0,1,id.z)].p_new)/2;
-    fluidData[indexFromIdCoords(width,0,id.z)].p_new = (fluidData[indexFromIdCoords(width-1,0,id.z)].p_new + fluidData[indexFromIdCoords(width,1,id.z)].p_new)/2;
-    fluidData[indexFromIdCoords(0,height,id.z)].p_new = (fluidData[indexFromIdCoords(1,height,id.z)].p_new + fluidData[indexFromIdCoords(0,height - 1,id.z)].p_new)/2;
-    fluidData[indexFromIdCoords(width,height,id.z)].p_new = (fluidData[indexFromIdCoords(width-1,height,id.z)].p_new + fluidData[indexFromIdCoords(width,height - 1,id.z)].p_new)/2;
-}
-void diffusionDensity(uint3 id){
-    
-    float scaler = diffusionFactor;
-    fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityNew = (fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityOld +  scaler * (fluidData[indexFromIdCoords(id.x+1,id.y,id.z)].densityNew + 
-    fluidData[indexFromIdCoords(id.x-1,id.y,id.z)].densityNew+
-    fluidData[indexFromIdCoords(id.x,id.y+1,id.z)].densityNew+
-    fluidData[indexFromIdCoords(id.x,id.y-1,id.z)].densityNew))/(1+4*scaler);
-    
-    setBoundaryDensity(id);
-}
-void diffusionVelocity(uint3 id){
-    
-    float scaler = diffusionFactor ;
-    fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityNew = (fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityOld + scaler * (fluidData[indexFromIdCoords(id.x+1,id.y,id.z)].velocityNew + 
-    fluidData[indexFromIdCoords(id.x-1,id.y,id.z)].velocityNew+
-    fluidData[indexFromIdCoords(id.x,id.y+1,id.z)].velocityNew+
-    fluidData[indexFromIdCoords(id.x,id.y-1,id.z)].velocityNew))/(1+4*scaler);
-    
-    setBoundaryVelocity(id);
+void divergence(uint3 id,RWStructuredBuffer<float> velocX, RWStructuredBuffer<float> velocY, RWStructuredBuffer<float> p, RWStructuredBuffer<float> div){
+    div[IX(id.x, id.x)] =
+                    (-0.5f *
+                    (velocX[IX(id.x + 1, id.y)] -
+                        velocX[IX(id.x - 1, id.y)] +
+                        velocY[IX(id.x, id.y + 1)] -
+                        velocY[IX(id.x, id.y - 1)])) /
+                    N;
+    p[IX(id.x,id.y)];
+    setBnd(id,0,div);
+    setBnd(id,0,p);
 
 }
-
-void advectionDensity(uint3 id){
-    
-    float velX = fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityOld.x;
-    float velY = fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityOld.y;
-    if(velX<0){
-        velX = floor(velX);
-    }
-    if(velY<0){
-        velY = floor(velY);
-    }
-    fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityNew = fluidData[indexFromIdCoords(id.x-velX,id.y-velY,id.z)].densityOld;
-    //fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityNew = fluidData[indexFromIdCoords(id.x-velX,id.y-velY,id.z)].velocityNew; 
-    setBoundaryDensity(id);
+void linSolveP(uint3 id,RWStructuredBuffer<float> p, RWStructuredBuffer<float> div){
+    p[IX(id.x, id.y)] =(div[IX(id.x, id.y)] + (p[IX(id.x + 1, id.y)] +
+    p[IX(id.x - 1, id.y)] +
+    p[IX(id.x, id.y + 1)] +
+    p[IX(id.x, id.y - 1)])) / 4;
+    setBnd(id,0,p);
 }
-
-void advectionVelocity(uint3 id){
-    float velX = fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityOld.x;
-    float velY = fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityOld.y;
-    if(velX<0){
-        velX = floor(velX);
-    }
-    if(velY<0){
-        velY = floor(velY);
-    }
-    fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityNew = fluidData[indexFromIdCoords(id.x-velX,id.y-velY,id.z)].velocityOld;
-
-    setBoundaryVelocity(id);
+void gradientCalc(uint3 id,RWStructuredBuffer<float> velocX, RWStructuredBuffer<float> velocY, RWStructuredBuffer<float> p){
+    velocX[IX(id.x, id.y)] -= 0.5f * (p[IX(id.x + 1, id.y)] - p[IX(id.x - 1, id.y)]) * N;
+    velocY[IX(id.x, id.y)] -= 0.5f * (p[IX(id.x, id.y + 1)] - p[IX(id.x, id.y - 1)]) * N;
+    setBnd(id,1,velocX);
+    setBnd(id,2,velocY);
+}
+void swap(uint3 id,RWStructuredBuffer<float> x, RWStructuredBuffer<float> x0){
+    float temp = x[IX(id.x,id.y)];
+    x0[IX(id.x,id.y)] = x[IX(id.x,id.y)];
+    x[IX(id.x,id.y)] = temp;
 }
 void addDensity(uint3 id){
     //fluidData[indexFromIdCoords(25 ,25,id.z)].densityOld += 5;
@@ -167,82 +157,65 @@ void addDensity(uint3 id){
     //fluidData[indexFromIdCoords(15,20,id.z)].velocityOld += float2(-1,0);
     //fluidData[indexFromIdCoords(15,5,id.z)].densityOld = 1;
     //fluidData[indexFromIdCoords(15,5,id.z)].velocityOld += float2(1,0);
+    densityOld[IX(N/2,N/2)] = 150;
+    velocityNewx[IX(N/2,N/2)] = 150;
+    velocityNewy[IX(N/2,N/2)] = 0;
     if(id.x == densityAdd.x && id.y == densityAdd.y && enabled){
-        fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityOld = 1;
+        densityNew[IX(id.x,id.y)] = 150;
         /*for(int i=0;i<20;i++){
             fluidData[indexFromIdCoords(id.x-i,id.y,id.z)].velocityOld += float2(-10,0);
         }*/
-        fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityOld = float2(1,0);
+        velocityNewx[IX(id.x,id.y)] = 150;
+        velocityNewy[IX(id.x,id.y)] = 0;
     }
     
 }
 
-
-void projectVelocity(uint3 id){
-
-    
-    fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityNew -= float2((fluidData[indexFromIdCoords(id.x+1,id.y,id.z)].p_new - fluidData[indexFromIdCoords(id.x-1,id.y,id.z)].p_new)/2.0 ,
-    (fluidData[indexFromIdCoords(id.x,id.y+1,id.z)].p_new  - fluidData[indexFromIdCoords(id.x,id.y-1,id.z)].p_new)/2.0);
-    setBoundaryVelocity(id);
-
-}
-void densityAlgorithm(uint3 id){
-    addDensity(id);
-    diffusionDensity(id);
-    //advectionDensity(id);
-    Density[id.xy] = fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityNew;
-    //Density[id.xy] = float4(1,1,1,0);
-
-}/*
-void velocityAlgorithm(uint3 id){
-  
-    diffusionVelocity(id);
-    //projectVelocity(id);
-    advectionVelocity(id);
-    //projectVelocity(id);
-}*/
 [numthreads(8,8,1)]
 void DiffuseDensity (uint3 id : SV_DispatchThreadID)
 {
-    //fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityOld = float2(1,0);
+    
     addDensity(id);
-    diffusionDensity(id);
+    diffusion(id,0,densityOld,densityNew,diffusionFactor);
+    
 }
 [numthreads(8,8,1)]
 void AdvectDensity(uint3 id : SV_DispatchThreadID){
-    advectionDensity(id);
+    advection(id,densityNew,densityOld,velocityNewx,velocityNewy,dt,0);
     //Density[id.xy] = float4(1,0,0,0);
-}
-[numthreads(8,8,1)]
-void SwapDensity(uint3 id: SV_DispatchThreadID)
-{
-    float temp = fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityOld;
-    fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityOld = fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityNew;
-    fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityNew = temp;
 }
 [numthreads(8,8,1)]
 void DiffuseVelocity(uint3 id: SV_DispatchThreadID)
 {
-    diffusionVelocity(id);
+    diffusion(id,1,velocityNewx,velocityOldx,velocityDiffusion);
+    diffusion(id,2,velocityNewy,velocityOldy,velocityDiffusion);
     
 }
 [numthreads(8,8,1)]
 void AdvectVelocity(uint3 id: SV_DispatchThreadID)
 {
-    advectionVelocity(id);
+    advection(id,velocityNewx,velocityOldx,velocityOldx,velocityOldy,dt,1);
+    advection(id,velocityNewy,velocityOldy,velocityOldx,velocityOldy,dt,2);
+
 }
 [numthreads(8,8,1)]
-void Project(uint3 id: SV_DispatchThreadID)
-{
-    projectVelocity(id);
-}
-[numthreads(8,8,1)]
-void SwapVelocity(uint3 id: SV_DispatchThreadID){
-    float2 temp = fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityOld;
-    fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityOld = fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityNew;
-    fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityNew = temp;
-    fluidData[indexFromIdCoords(id.x,id.y,id.z)].p_new = 0;
+void findDivergence(uint3 id: SV_DispatchThreadID){
+    divergence(id,velocityNewx,velocityNewy,p,delV);
     
+}
+[numthreads(8,8,1)]
+void solveP(uint3 id: SV_DispatchThreadID){
+    linSolveP(id,p,delV);
+}
+[numthreads(8,8,1)]
+void gradient(uint3 id: SV_DispatchThreadID){
+    gradientCalc(id,velocityNewx,velocityNewy,p);
+}
+[numthreads(8,8,1)]
+void swapVelocity(uint3 id: SV_DispatchThreadID)
+{
+    swap(id,velocityNewx,velocityOldx);
+    swap(id,velocityNewy,velocityOldy);
 }
 [numthreads(8,8,1)]
 void Draw(uint3 id: SV_DispatchThreadID){
@@ -254,37 +227,8 @@ void Draw(uint3 id: SV_DispatchThreadID){
         Density[id.xy] = float4(fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityNew.x,fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityNew.y,0,0);
     }*/
     //Density[id.xy] = float4(fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityNew.x,fluidData[indexFromIdCoords(id.x,id.y,id.z)].velocityNew.y,0,0);
-    Density[id.xy] = fluidData[indexFromIdCoords(id.x,id.y,id.z)].densityNew;
-    if(id.x == 0){
-        Density[id.xy] = float4(0,0,1,0);
-    }
-    if(id.x == width-1){
-        Density[id.xy] = float4(0,0,1,0);
-    }
-    if(id.y == 0){
-        Density[id.xy] = float4(1,0,0,0);
-    }
-    if(id.y == height-1){
-        Density[id.xy] = float4(0,0,1,0);
-    }
+    Density[id.xy] = densityNew[IX(id.x,id.y)];
     //Density[indexFromIdCoords(1920,1080,0)] = 10;
 }
-[numthreads(8,8,1)]
-void swapP(uint3 id: SV_DispatchThreadID){
-    fluidData[indexFromIdCoords(id.x,id.y,id.z)].p_old = fluidData[indexFromIdCoords(id.x,id.y,id.z)].p_new;
-}
-[numthreads(8,8,1)]
-void findDivergence(uint3 id: SV_DispatchThreadID){
-    fluidData[indexFromIdCoords(id.x,id.y,id.z)].delV = (fluidData[indexFromIdCoords(id.x+1,id.y,id.z)].velocityNew.x - 
-                fluidData[indexFromIdCoords(id.x-1,id.y,id.z)].velocityNew.x +
-                fluidData[indexFromIdCoords(id.x,id.y+1,id.z)].velocityNew.y - 
-                fluidData[indexFromIdCoords(id.x,id.y-1,id.z)].velocityNew.y)/(2.0);
-    setBoundarydelV(id);
-    setBoundaryP(id);
-    fluidData[indexFromIdCoords(id.x,id.y,id.z)].p_new = ((fluidData[indexFromIdCoords(id.x-1,id.y,id.z)].p_old +
-    fluidData[indexFromIdCoords(id.x+1,id.y,id.z)].p_old +
-    fluidData[indexFromIdCoords(id.x,id.y-1,id.z)].p_old + 
-    fluidData[indexFromIdCoords(id.x,id.y+1,id.z)].p_old) - fluidData[indexFromIdCoords(id.x,id.y,id.z)].delV)/4.0;
-    setBoundaryP(id);
-    
-}
+
+

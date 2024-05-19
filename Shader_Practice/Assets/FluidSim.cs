@@ -11,31 +11,43 @@ public class FluidSim : MonoBehaviour
     ComputeShader DensityCompute;
     [SerializeField]
     ComputeShader VelocityCompute;
-    public int resolutionX;
-    public int resolutionY;
+    public int N;
+    public float dt;
     public int resolution;
     [SerializeField]
-    float diffusion;
+    float Densitydiffusion;
+    [SerializeField]
+    float Velocitydiffusion;
     fluid[] data;
     [SerializeField]
     Camera cam;
+    public float[] densityData;
     ComputeBuffer dataBuffer;
-    public fluid[] velocityData; 
+    ComputeBuffer densityNewBuffer;
+    ComputeBuffer densityOldBuffer;
+    ComputeBuffer velocityNewBufferx;
+    ComputeBuffer velocityOldBufferx;
+    ComputeBuffer velocityNewBuffery;
+    ComputeBuffer velocityOldBuffery;
+    ComputeBuffer pBuffer;
+    ComputeBuffer delVBuffer;
+
+
     public TMP_Text text;
     
-    public GameObject arrow;
-    public GameObject[] arrows;
     const int DiffuseDensityKernel = 0;
     const int AdvectDensityKernel= 1;
-    const int SwapDensityKernel = 2;
-    const int DiffuseVelocityKernel = 3;
-    const int AdvectVelocityKernel = 4;
-    const int ProjectKernel = 5;
-    const int SwapVelocityKernel = 6;
-    const int DrawKernel = 7;
-    const int SwapPKernel = 8;
-    const int findDiverenceKernel = 9;
-    public Vector2[,] spawnGrid;
+    const int DiffuseVelocityKernel = 2;
+    const int AdvectVelocityKernel = 3;
+    const int findDiverenceKernel = 4;
+    const int solvePKernel = 5;
+    const int gradientKernel = 6;
+    const int SwapVelocityKernel = 7;
+    const int DrawKernel = 8;
+    
+    
+    
+
     // Start is called before the first frame update
     public struct fluid{
         public float densityOld;
@@ -48,21 +60,35 @@ public class FluidSim : MonoBehaviour
     }
     private void OnDestroy() {
         dataBuffer.Release();
+        densityNewBuffer.Release();
+        densityOldBuffer.Release();
+        velocityNewBufferx.Release();
+        velocityOldBufferx.Release();
+        velocityNewBuffery.Release();
+        velocityOldBuffery.Release();
+        pBuffer.Release();
+        delVBuffer.Release();
     }
     void Start()
     {
-        spawnGrid = new Vector2[resolutionX, resolutionY];
         if(DensityTexture == null){
-            DensityTexture = new RenderTexture(resolutionX,resolutionY,32);
+            DensityTexture = new RenderTexture(N,N,32);
             DensityTexture.enableRandomWrite = true;
             
             DensityTexture.Create();
         }
-        resolution = resolutionX*resolutionY; 
-        velocityData = new fluid[resolution];
+        resolution = N*N; 
+        densityData = new float[resolution];
+        float[] densityNew = new float[resolution];
+        float[] densityOld = new float[resolution];
+        float[] velocityNewx = new float[resolution];
+        float[] velocityOldx = new float[resolution];
+        float[] velocityNewy = new float[resolution];
+        float[] velocityOldy = new float[resolution];
+        float[] p = new float[resolution];
+        float[] delV = new float[resolution]; 
         data = new fluid[resolution];
-        /*
-        arrows = new GameObject[resolution];*/
+        
         for(int i = 0;i<resolution;i++){
             data[i].densityOld = 0; 
             data[i].densityNew = 0;
@@ -71,13 +97,72 @@ public class FluidSim : MonoBehaviour
             data[i].p_new = 0;
             data[i].p_old = 0;
             data[i].delV = 0;
-            /*
-            GameObject arrowImage = Instantiate(arrow);
-            arrowImage.GetComponent<RectTransform>().localPosition = new Vector3(i%resolutionX,i/resolutionX,0);
-            arrows[i] = arrowImage;*/
         }
         dataBuffer = new ComputeBuffer(resolution,sizeof(float)+2*sizeof(float)+sizeof(float)+sizeof(float)+2*sizeof(float)+sizeof(float)+sizeof(float));
         dataBuffer.SetData(data);
+        
+        densityNewBuffer = new ComputeBuffer(resolution,sizeof(float));
+        densityNewBuffer.SetData(densityNew);
+        densityOldBuffer = new ComputeBuffer(resolution,sizeof(float));
+        densityOldBuffer.SetData(densityOld);
+        velocityNewBufferx = new ComputeBuffer(resolution,sizeof(float));
+        velocityNewBufferx.SetData(velocityNewx);
+        velocityOldBufferx = new ComputeBuffer(resolution,sizeof(float));
+        velocityOldBufferx.SetData(velocityOldx);
+        velocityNewBuffery = new ComputeBuffer(resolution,sizeof(float));
+        velocityNewBuffery.SetData(velocityNewy);
+        velocityOldBuffery = new ComputeBuffer(resolution,sizeof(float));
+        velocityOldBuffery.SetData(velocityOldy);
+        pBuffer = new ComputeBuffer(resolution,sizeof(float));
+        pBuffer.SetData(p);
+        delVBuffer = new ComputeBuffer(resolution,sizeof(float));
+        delVBuffer.SetData(delV);
+
+        DensityCompute.SetBuffer(DiffuseDensityKernel,"densityNew",densityNewBuffer);
+        DensityCompute.SetBuffer(DiffuseDensityKernel,"densityOld",densityOldBuffer);
+        DensityCompute.SetBuffer(DiffuseDensityKernel,"velocityNewx",velocityNewBufferx);
+        DensityCompute.SetBuffer(DiffuseDensityKernel,"velocityNewy",velocityNewBuffery);
+
+        DensityCompute.SetBuffer(AdvectDensityKernel,"densityNew",densityNewBuffer);
+        DensityCompute.SetBuffer(AdvectDensityKernel,"densityOld",densityOldBuffer);
+        DensityCompute.SetBuffer(AdvectDensityKernel,"velocityNewx",velocityNewBufferx);
+        DensityCompute.SetBuffer(AdvectDensityKernel,"velocityNewy",velocityNewBuffery);
+        DensityCompute.SetBuffer(AdvectDensityKernel,"velocityOldx",velocityOldBufferx);
+        DensityCompute.SetBuffer(AdvectDensityKernel,"velocityOldy",velocityOldBuffery);
+
+        DensityCompute.SetBuffer(DiffuseVelocityKernel,"velocityNewx",velocityNewBufferx);
+        DensityCompute.SetBuffer(DiffuseVelocityKernel,"velocityNewy",velocityNewBuffery);
+        DensityCompute.SetBuffer(DiffuseVelocityKernel,"velocityOldx",velocityOldBufferx);
+        DensityCompute.SetBuffer(DiffuseVelocityKernel,"velocityOldy",velocityOldBuffery);
+
+        DensityCompute.SetBuffer(AdvectVelocityKernel,"velocityNewx",velocityNewBufferx);
+        DensityCompute.SetBuffer(AdvectVelocityKernel,"velocityNewy",velocityNewBuffery);
+        DensityCompute.SetBuffer(AdvectVelocityKernel,"velocityOldx",velocityOldBufferx);
+        DensityCompute.SetBuffer(AdvectVelocityKernel,"velocityOldy",velocityOldBuffery);
+
+        //const int solvePKernel = 8;
+        
+        //const int gradientKernel = 10;
+        //const int findDiverenceKernel = 9;
+        DensityCompute.SetBuffer(findDiverenceKernel,"velocityNewx",velocityNewBufferx);
+        DensityCompute.SetBuffer(findDiverenceKernel,"velocityNewy",velocityNewBuffery);
+        DensityCompute.SetBuffer(findDiverenceKernel,"p",pBuffer);
+        DensityCompute.SetBuffer(findDiverenceKernel,"delV",delVBuffer);
+
+        //const int solvePKernel = 8;
+        DensityCompute.SetBuffer(solvePKernel,"p",pBuffer);
+        DensityCompute.SetBuffer(solvePKernel,"delV",delVBuffer);
+
+        DensityCompute.SetBuffer(gradientKernel,"velocityNewx",velocityNewBufferx);
+        DensityCompute.SetBuffer(gradientKernel,"velocityNewy",velocityNewBuffery);
+        DensityCompute.SetBuffer(gradientKernel,"p",pBuffer);
+
+        //swap
+        DensityCompute.SetBuffer(SwapVelocityKernel,"velocityNewx",velocityNewBufferx);
+        DensityCompute.SetBuffer(SwapVelocityKernel,"velocityNewy",velocityNewBuffery);
+        DensityCompute.SetBuffer(SwapVelocityKernel,"velocityOldx",velocityOldBufferx);
+        DensityCompute.SetBuffer(SwapVelocityKernel,"velocityOldy",velocityOldBuffery);
+        /*
         DensityCompute.SetBuffer(DiffuseDensityKernel,"fluidData",dataBuffer);
         DensityCompute.SetBuffer(AdvectDensityKernel,"fluidData",dataBuffer);
         DensityCompute.SetBuffer(SwapDensityKernel,"fluidData",dataBuffer);
@@ -88,12 +173,14 @@ public class FluidSim : MonoBehaviour
         DensityCompute.SetBuffer(DrawKernel,"fluidData",dataBuffer);
         DensityCompute.SetBuffer(SwapPKernel,"fluidData",dataBuffer);
         DensityCompute.SetBuffer(findDiverenceKernel,"fluidData",dataBuffer);
+        */
+        DensityCompute.SetBuffer(DrawKernel,"densityNew",densityNewBuffer);
         DensityCompute.SetTexture(DrawKernel,"Density",DensityTexture);
         DensityCompute.SetVector("densityAdd",new Vector2(100,100));
-        DensityCompute.SetFloat("diffusionFactor",diffusion);
-        DensityCompute.SetFloat("width",resolutionX);
-        DensityCompute.SetFloat("height",resolutionY);
-        DensityCompute.SetVector ("_Time", Shader.GetGlobalVector ("_Time"));
+        DensityCompute.SetFloat("diffusionFactor",Densitydiffusion);
+        DensityCompute.SetFloat("velocityDiffusion",Velocitydiffusion);
+        DensityCompute.SetFloat("N",N);
+        DensityCompute.SetFloat ("dt", dt);
         
     }
 
@@ -104,7 +191,7 @@ public class FluidSim : MonoBehaviour
             Vector3 mouse_pos_pixel_coord = Input.mousePosition;
             Vector2 mouse_pos_normalized  = cam.ScreenToViewportPoint(mouse_pos_pixel_coord);
             mouse_pos_normalized  = new Vector2(Mathf.Clamp01(mouse_pos_normalized.x), Mathf.Clamp01(mouse_pos_normalized.y));
-            Vector2 mouse_sim = new Vector2((int)(mouse_pos_normalized.x*resolutionX),(int)(mouse_pos_normalized.y*resolutionY));
+            Vector2 mouse_sim = new Vector2((int)(mouse_pos_normalized.x*N),(int)(mouse_pos_normalized.y*N));
             //Vector2 velocity = (mouse_sim-prevPosition);
             //Debug.Log(velocity);
             //computeShader.SetFloat("diffuseOn",1);
@@ -117,11 +204,14 @@ public class FluidSim : MonoBehaviour
         if(!Input.anyKey){
             DensityCompute.SetBool("enabled",false);
         }
+        
+        
+        //velocityAlgorithm();
         densityAlgorithm();
-        velocityAlgorithm();
         Draw();
 
         Graphics.Blit(DensityTexture,ouputTexture);
+        densityNewBuffer.GetData(densityData);
         /*
         dataBuffer.GetData(velocityData);
         text.text = "";
@@ -137,46 +227,44 @@ public class FluidSim : MonoBehaviour
         
         
     }
+    
     void densityAlgorithm(){
         for(int i = 0;i<20;i++){
-            DensityCompute.Dispatch(DiffuseDensityKernel,resolutionX/8,resolutionY/8,1);
-            DensityCompute.Dispatch(SwapDensityKernel,resolutionX/8,resolutionY/8,1);
+            DensityCompute.Dispatch(DiffuseDensityKernel,N/8,N/8,1);
         }
-        
-        DensityCompute.Dispatch(AdvectDensityKernel,resolutionX/8,resolutionY/8,1);
-        DensityCompute.Dispatch(SwapDensityKernel,resolutionX/8,resolutionY/8,1);
+        DensityCompute.Dispatch(AdvectDensityKernel,N/8,N/8,1);
         
     }
+    
     void velocityAlgorithm(){
-        for(int i = 0;i<20;i++){
-            DensityCompute.Dispatch(DiffuseVelocityKernel,resolutionX/8,resolutionY/8,1);
-            DensityCompute.Dispatch(SwapVelocityKernel,resolutionX/8,resolutionY/8,1);
+
+        for(int i = 0 ;i<20;i++){
+            DensityCompute.Dispatch(DiffuseVelocityKernel,N/8,N/8,1);
         }
-        for(int i = 0;i<20;i++){
-            DensityCompute.Dispatch(findDiverenceKernel,resolutionX/8,resolutionY/8,1);
-            DensityCompute.Dispatch(SwapPKernel,resolutionX/8,resolutionY/8,1);
+        DensityCompute.Dispatch(findDiverenceKernel,N/8,N/8,1);
+        for(int i = 0; i<20;i++){
+            DensityCompute.Dispatch(solvePKernel,N/8,N/8,1);
         }
-        //DensityCompute.Dispatch(findDiverenceKernel,resolutionX/8,resolutionY/8,1);
-        //DensityCompute.Dispatch(SwapPKernel,resolutionX/8,resolutionY/8,1);
-        DensityCompute.Dispatch(ProjectKernel,resolutionX/8,resolutionY/8,1);
-        
-        
-        DensityCompute.Dispatch(SwapVelocityKernel,resolutionX/8,resolutionY/8,1);
-        
-        DensityCompute.Dispatch(AdvectVelocityKernel,resolutionX/8,resolutionY/8,1);
-        
-        
-        for(int i = 0;i<20;i++){
-            DensityCompute.Dispatch(findDiverenceKernel,resolutionX/8,resolutionY/8,1);
-            DensityCompute.Dispatch(SwapPKernel,resolutionX/8,resolutionY/8,1);
+        DensityCompute.Dispatch(gradientKernel,N/8,N/8,1);
+        DensityCompute.Dispatch(SwapVelocityKernel,N/8,N/8,1);
+        DensityCompute.Dispatch(AdvectVelocityKernel,N/8,N/8,1);
+        DensityCompute.Dispatch(findDiverenceKernel,N/8,N/8,1);
+        for(int i = 0; i<20;i++){
+            DensityCompute.Dispatch(solvePKernel,N/8,N/8,1);
         }
-        //DensityCompute.Dispatch(findDiverenceKernel,resolutionX/8,resolutionY/8,1);
-        //DensityCompute.Dispatch(SwapPKernel,resolutionX/8,resolutionY/8,1);
-        DensityCompute.Dispatch(ProjectKernel,resolutionX/8,resolutionY/8,1);
-        
-        DensityCompute.Dispatch(SwapVelocityKernel,resolutionX/8,resolutionY/8,1); 
+        DensityCompute.Dispatch(gradientKernel,N/8,N/8,1);
+
+        //diffuse both x and y
+        //project 
+        //findDivergence
+        //solveP
+        //gradient
+        //advect both x and y
+        //project
     }
+    
     void Draw(){
-        DensityCompute.Dispatch(DrawKernel,resolutionX/8,resolutionY/8,1);
+        DensityCompute.Dispatch(DrawKernel,N/8,N/8,1);
     }
+    
 }
