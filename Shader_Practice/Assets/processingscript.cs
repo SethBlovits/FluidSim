@@ -15,7 +15,7 @@ public class processingscript : MonoBehaviour
     float[] Vy0;
     float[] s;
     float[] density;
-    float[] delV;
+    public float[] delV;
     float[] p;
 
     [SerializeField]
@@ -62,6 +62,7 @@ public class processingscript : MonoBehaviour
         }
     }
     void project(float[] velocX, float[] velocY, float[] p, float[] div) {
+        
         for (int j = 1; j < N - 1; j++) {
             for (int i = 1; i < N - 1; i++) {
                 div[IX(i, j)] =
@@ -72,13 +73,45 @@ public class processingscript : MonoBehaviour
                         velocY[IX(i, j - 1)])) /
                     N;
                 p[IX(i, j)] = 0;
+                delV[IX(i, j)] = div[IX(i, j)]; 
+            }
+        }
+        
+        set_bnd(0, div);
+        set_bnd(0, p);
+
+        lin_solve(0, p, div, 1, 4);
+
+        for (int j = 1; j < N - 1; j++) {
+            for (int i = 1; i < N - 1; i++) {
+                velocX[IX(i, j)] -= 0.5f * (p[IX(i + 1, j)] - p[IX(i - 1, j)]) * N;
+                velocY[IX(i, j)] -= 0.5f * (p[IX(i, j + 1)] - p[IX(i, j - 1)]) * N;
             }
         }
 
-        set_bnd(0, div);
-        set_bnd(0, p);
-        lin_solve(0, p, div, 1, 4);
+        set_bnd(1, velocX);
+        set_bnd(2, velocY);
+    }
+    void mod_project(float[] velocX, float[] velocY, float[] p, float[] div) {
+        
+        /*for (int j = 1; j < N - 1; j++) {
+            for (int i = 1; i < N - 1; i++) {
+                div[IX(i, j)] =
+                    (-0.5f *
+                    (velocX[IX(i + 1, j)] -
+                        velocX[IX(i - 1, j)] +
+                        velocY[IX(i, j + 1)] -
+                        velocY[IX(i, j - 1)])) /
+                    N;
+                p[IX(i, j)] = 0;
+            }
+        }*/
+       
+        //set_bnd(0, div);
+        //set_bnd(0, p);
 
+        lin_solve(0, p, div, 1, 4);
+        
         for (int j = 1; j < N - 1; j++) {
             for (int i = 1; i < N - 1; i++) {
                 velocX[IX(i, j)] -= 0.5f * (p[IX(i + 1, j)] - p[IX(i - 1, j)]) * N;
@@ -153,66 +186,87 @@ public class processingscript : MonoBehaviour
         x[IX(N - 1, N - 1)] = 0.5f * (x[IX(N - 2, N - 1)] + x[IX(N - 1, N - 2)]);
     }
     void step(){
-        velocityNewX.SetData(Vx);
-        velocityNewY.SetData(Vy);
-        velocityOldX.SetData(Vx0);
-        velocityOldY.SetData(Vy0);
+        
+        //velocityNewX.SetData(Vx);
+        //velocityNewY.SetData(Vy);
+        //velocityOldX.SetData(Vx0);
+        //velocityOldY.SetData(Vy0);
+        Compute.Dispatch(6,N/8,N/8,1);
         for(int i = 0;i<20;i++){
             Compute.Dispatch(3,N/8,N/8,1);//diffuse velocity
         }
-        //Compute.Dispatch(3,N/8,N/8,1);
-        //diffuse(1, Vx0, Vx, viscosity, dt);
-        //diffuse(2, Vy0, Vy, viscosity, dt);
+        
         velocityNewX.GetData(Vx);
         velocityNewY.GetData(Vy);
         velocityOldX.GetData(Vx0);
         velocityOldY.GetData(Vy0);
         project(Vx0, Vy0, Vx, Vy);
-        
         velocityNewX.SetData(Vx);
         velocityNewY.SetData(Vy);
         velocityOldX.SetData(Vx0);
         velocityOldY.SetData(Vy0);
-        
-        //advect(1, Vx, Vx0, Vx0, Vy0, dt);
-        //advect(2, Vy, Vy0, Vx0, Vy0, dt);
+        //Compute.Dispatch(6,N/8,N/8,1);
         Compute.Dispatch(4,N/8,N/8,1);//advect velocity
-
+        
+        Compute.Dispatch(7,N/8,N/8,1);
+        velocityOldY.GetData(delV);
+        for (int i = 0; i < delV.Length; i++) {
+            if (float.IsNaN(delV[i]) || float.IsInfinity(delV[i])) {
+                Debug.LogError($"delV contains invalid data at index {i}: {delV[i]}");
+            }
+        }
+        for(int i = 0;i<20;i++){
+            Compute.Dispatch(8,N/8,N/8,1);
+        }
+        velocityOldY.GetData(delV);
+        for (int i = 0; i < delV.Length; i++) {
+            if (float.IsNaN(delV[i]) || float.IsInfinity(delV[i])) {
+                Debug.LogError($"delV contains invalid data at index {i}: {delV[i]}");
+            }
+        }
+        Compute.Dispatch(9,N/8,N/8,1);
+        velocityOldY.GetData(delV);
+        for (int i = 0; i < delV.Length; i++) {
+            if (float.IsNaN(delV[i]) || float.IsInfinity(delV[i])) {
+                Debug.LogError($"delV contains invalid data at index {i}: {delV[i]}");
+            }
+        }
+        velocityNewX.GetData(Vx);
+        velocityNewY.GetData(Vy);
+        velocityOldX.GetData(Vx0);
+        velocityOldY.GetData(Vy0);
+        /*
         velocityNewX.GetData(Vx);
         velocityNewY.GetData(Vy);
         velocityOldX.GetData(Vx0);
         velocityOldY.GetData(Vy0);
         project(Vx, Vy, Vx0, Vy0);
-        //need a compute shader kernel for diffusion with access to density
-        densityNew.SetData(density);
-        densityOld.SetData(s);
-        //velocityNewX.SetData(Vx);
-        //velocityNewY.SetData(Vy);
+        velocityNewX.SetData(Vx);
+        velocityNewY.SetData(Vy);
+        velocityOldX.SetData(Vx0);
+        velocityOldY.SetData(Vy0);
+        */
+        
+        
 
         for(int i = 0;i<20;i++){
             Compute.Dispatch(1,N/8,N/8,1);//diffuse density
         }
         
-        velocityNewX.SetData(Vx);
-        velocityNewY.SetData(Vy);
-
+        Compute.Dispatch(5,N/8,N/8,1);//swaps density
         Compute.Dispatch(2,N/8,N/8,1);//advect density
+        Compute.Dispatch(5,N/8,N/8,1);//swaps density
         densityNew.GetData(density);
         densityOld.GetData(s);
-        //velocityNewX.GetData(Vx);
-        //velocityNewY.GetData(Vy);
-        //diffuse(0, s, density, diffusion, dt);
-        //densityNew.GetData(density);
-        //densityOld.GetData(s);
-        //set_bnd(0,s);
-        //advect(0, density, s, Vx, Vy, dt);
+        
+        
     }
     void Start()
     {   
         if(DensityTexture == null){
             DensityTexture = new RenderTexture(N,N,32);
             DensityTexture.enableRandomWrite = true;
-            
+            DensityTexture.wrapMode = TextureWrapMode.Clamp;
             DensityTexture.Create();
         }
         density = new float[N*N];
@@ -257,7 +311,7 @@ public class processingscript : MonoBehaviour
         Compute.SetTexture(0,"Result",DensityTexture);
         Compute.SetFloat("width",N);
         Compute.SetFloat("height",N);
-        Compute.SetFloat("N",N);
+        Compute.SetFloat("N",(float)N);
         Compute.SetFloat("dt",dt);
         Compute.SetFloat("densityDiffusion",diffusion);
         Compute.SetFloat("velocityDiffusion",viscosity);
@@ -280,6 +334,28 @@ public class processingscript : MonoBehaviour
         Compute.SetBuffer(4,"velocityOldX",velocityOldX);
         Compute.SetBuffer(4,"velocityOldY",velocityOldY);
 
+        Compute.SetBuffer(5,"densityNew",densityNew);
+        Compute.SetBuffer(5,"densityOld",densityOld);
+
+        Compute.SetBuffer(6,"velocityNewX",velocityNewX);
+        Compute.SetBuffer(6,"velocityNewY",velocityNewY);
+        Compute.SetBuffer(6,"velocityOldX",velocityOldX);
+        Compute.SetBuffer(6,"velocityOldY",velocityOldY);
+
+        Compute.SetBuffer(7,"velocityNewX",velocityNewX);
+        Compute.SetBuffer(7,"velocityNewY",velocityNewY);
+        Compute.SetBuffer(7,"velocityOldX",velocityOldX);
+        Compute.SetBuffer(7,"velocityOldY",velocityOldY);
+
+        Compute.SetBuffer(8,"velocityNewX",velocityNewX);
+        Compute.SetBuffer(8,"velocityNewY",velocityNewY);
+        Compute.SetBuffer(8,"velocityOldX",velocityOldX);
+        Compute.SetBuffer(8,"velocityOldY",velocityOldY);
+
+        Compute.SetBuffer(9,"velocityNewX",velocityNewX);
+        Compute.SetBuffer(9,"velocityNewY",velocityNewY);
+        Compute.SetBuffer(9,"velocityOldX",velocityOldX);
+        Compute.SetBuffer(9,"velocityOldY",velocityOldY);
 
 
     }
@@ -287,11 +363,15 @@ public class processingscript : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        density[IX(N/2,N/2)] += 10;
-        Vx[IX(N/2,N/2)] += 10;
+        s[IX(N/2,N/2)] = 10;
+        Vx[IX(N/2,N/2)] = 1;
+        velocityNewX.SetData(Vx);
+        densityNew.SetData(density);
+        densityOld.SetData(s);
         step();
         //density[IX(N/2,N/2)] += 1500;
-        densityNew.SetData(density);
+        
+        //velocityNewX.SetData(Vx);
         
         Compute.Dispatch(0,N/8,N/8,1);
         Graphics.Blit(DensityTexture,ouputTexture);

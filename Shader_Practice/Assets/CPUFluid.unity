@@ -725,10 +725,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 99090982b58369844b4942e402690fae, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  N: 100
+  N: 128
   viscosity: 0.0000001
   diffusion: 0
   dt: 0.2
+  delV: []
   cam: {fileID: 1031843337}
   ouputTexture: {fileID: 8400000, guid: e013ac3f9e012f2479efc109c452863d, type: 2}
   Compute: {fileID: 7200000, guid: 58eed63cb8d14384989c7f780e7f9192, type: 3}

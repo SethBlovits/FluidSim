@@ -4,7 +4,11 @@
 #pragma kernel DensityAdvection
 #pragma kernel VelocityDiffusion
 #pragma kernel VelocityAdvection
-#pragma kernel findDivergence
+#pragma kernel SwapDensity;
+#pragma kernel SwapVelocity;
+#pragma kernel findDivergence;
+#pragma kernel solveP;
+#pragma kernel solveGradient;
 //#pragma kernel diffusionDensity
 // Create a RenderTexture with enableRandomWrite flag and set it
 // with cs.SetTexture
@@ -14,7 +18,8 @@ RWStructuredBuffer<float> velocityNewX;
 RWStructuredBuffer<float> velocityNewY;
 RWStructuredBuffer<float> velocityOldX;
 RWStructuredBuffer<float> velocityOldY;
-RWStructuredBuffer<float> delV; 
+RWStructuredBuffer<float> delV;
+RWStructuredBuffer<float> P; 
 
 //RWStructuredBuffer
 RWTexture2D<float4> Result;
@@ -29,103 +34,118 @@ int IX(uint x,uint y){
     return x+y*N;
 
 }
+void swap(uint3 id , RWStructuredBuffer<float> old, RWStructuredBuffer<float> newData){
+    float temp = old[IX(id.x,id.y)];
+    old[IX(id.x,id.y)] = newData[IX(id.x,id.y)];
+    newData[IX(id.x,id.y)] = temp;
+}
 void setBnd(uint3 id, uint b, RWStructuredBuffer<float> x){
     
     x[IX(id.x, 0)] = b == 2 ? -x[IX(id.x, 1)] : x[IX(id.x, 1)];
-    x[IX(id.x, N - 1)] = b == 2 ? -x[IX(id.x, N - 2)] : x[IX(id.x, N - 2)];
+    x[IX(id.x, N)] = b == 2 ? -x[IX(id.x, N - 1)] : x[IX(id.x, N - 1)];
     
     
     x[IX(0, id.y)] = b == 1 ? -x[IX(1, id.y)] : x[IX(1, id.y)];
-    x[IX(N - 1, id.y)] = b == 1 ? -x[IX(N - 2, id.y)] : x[IX(N - 2, id.y)];
+    x[IX(N, id.y)] = b == 1 ? -x[IX(N - 1, id.y)] : x[IX(N - 1, id.y)];
     
     if(id.x == 0 && id.y == 0){
-         x[IX(0, 0)] = 0.5f * (x[IX(1, 0)] + x[IX(0, 1)]);
+         x[IX(0, 0)] = 0.5 * (x[IX(1, 0)] + x[IX(0, 1)]);
     }
-    if(id.x == 0 && id.y == N-1){
-        x[IX(0, N - 1)] = 0.5f * (x[IX(1, N - 1)] + x[IX(0, N - 2)]);
+    if(id.x == 0 && id.y == N){
+        x[IX(0, N)] = 0.5 * (x[IX(1, N)] + x[IX(0, N - 1)]);
     }
-    if(id.x == N-1 && id.y == 0){
-        x[IX(N - 1, 0)] = 0.5f * (x[IX(N - 2, 0)] + x[IX(N - 1, 1)]);
+    if(id.x == N && id.y == 0){
+        x[IX(N, 0)] = 0.5 * (x[IX(N - 1, 0)] + x[IX(N, 1)]);
     }
-    if(id.x == N-1 && id.y == N-1){
-        x[IX(N - 1, N - 1)] = 0.5f * (x[IX(N - 2, N - 1)] + x[IX(N - 1, N - 2)]);
+    if(id.x == N && id.y == N){
+        x[IX(N , N)] = 0.5 * (x[IX(N - 1, N)] + x[IX(N , N - 1)]);
     } 
     
 }
 void diffusion(uint3 id,uint b,RWStructuredBuffer<float> x,RWStructuredBuffer<float> x0,float diff){
     //need to change scaler
     float scaler = dt* diff * (N-2)*(N-2);
-    x[IX(id.x,id.y)] = (x0[IX(id.x,id.y)] +  scaler * (x[IX(id.x+1,id.y)] + 
-    x[IX(id.x-1,id.y)]+
-    x[IX(id.x,id.y+1)]+
-    x[IX(id.x,id.y-1)]))/(1+4*scaler);
+    if(id.x>0 && id.x < N && id.y > 0 && id.y < N ){
+        x[IX(id.x,id.y)] = (x0[IX(id.x,id.y)] +  scaler * (x[IX(id.x+1,id.y)] + 
+        x[IX(id.x-1,id.y)]+
+        x[IX(id.x,id.y+1)]+
+        x[IX(id.x,id.y-1)]))/(1+4*scaler);
+    }
     setBnd(id,b,x);
 }
 void advection(uint3 id,RWStructuredBuffer<float> d ,RWStructuredBuffer<float> d0,RWStructuredBuffer<float> velocX, RWStructuredBuffer<float> velocY, float dt,uint b){
-    float i0, i1, j0, j1;
+    if(id.x> 0 && id.x < N && id.y > 0 && id.y < N ){
+        float i0, i1, j0, j1;
 
-    float dtx = dt * (N - 2);
-    float dty = dt * (N - 2);
+        float dtx = dt * (N - 2);
+        float dty = dt * (N - 2);
 
-    float s0, s1, t0, t1;
+        float s0, s1, t0, t1;
 
-    float Nfloat = (float)N - 2;
+        float Nfloat = (float)N - 2;
 
-    float tmp1 = dtx * velocX[IX(id.x, id.y)];
-    float tmp2 = dty * velocY[IX(id.x, id.y)];
-    float x = id.x - tmp1;
-    float y = id.y - tmp2;
+        float tmp1 = dtx * velocX[IX(id.x, id.y)];
+        float tmp2 = dty * velocY[IX(id.x, id.y)];
+        float x = id.x - tmp1;
+        float y = id.y - tmp2;
 
-    if (x < 0.5) x = 0.5;
-    if (x > Nfloat + 0.5) x = Nfloat + 0.5;
-    i0 = floor(x);
-    i1 = i0 + 1.0;
-    if (y < 0.5) y = 0.5;
-    if (y > Nfloat + 0.5) y = Nfloat + 0.5;
-    j0 = floor(y);
-    j1 = j0 + 1.0;
+        if (x < 0.5) x = 0.5;
+        if (x > Nfloat + 0.5) x = Nfloat + 0.5;
+        i0 = floor(x);
+        i1 = i0 + 1.0;
+        if (y < 0.5) y = 0.5;
+        if (y > Nfloat + 0.5) y = Nfloat + 0.5;
+        j0 = floor(y);
+        j1 = j0 + 1.0;
 
-    s1 = x - i0;
-    s0 = 1.0 - s1;
-    t1 = y - j0;
-    t0 = 1.0 - t1;
+        s1 = x - i0;
+        s0 = 1.0 - s1;
+        t1 = y - j0;
+        t0 = 1.0 - t1;
 
-    int i0i = i0;
-    int i1i = i1;
-    int j0i = j0;
-    int j1i = j1;
+        int i0i = i0;
+        int i1i = i1;
+        int j0i = j0;
+        int j1i = j1;
 
-    d[IX(id.x, id.y)] =
-        s0 * (t0 * d0[IX(i0i, j0i)] + t1 * d0[IX(i0i, j1i)]) +
-        s1 * (t0 * d0[IX(i1i, j0i)] + t1 * d0[IX(i1i, j1i)]);
-    
+        d[IX(id.x, id.y)] =
+            s0 * (t0 * d0[IX(i0i, j0i)] + t1 * d0[IX(i0i, j1i)]) +
+            s1 * (t0 * d0[IX(i1i, j0i)] + t1 * d0[IX(i1i, j1i)]);
+    }
     //d[IX(id.x, id.y)] = d0[id.x-(dt * (N - 2)*velocX[IX(id.x, id.y)]),id.y-(dt * (N - 2)*velocY[IX(id.x, id.y)])];
     setBnd(id,b,d);
     //set_bnd(b, d);
 }
 void divergence(uint3 id,RWStructuredBuffer<float> velocX, RWStructuredBuffer<float> velocY, RWStructuredBuffer<float> p, RWStructuredBuffer<float> div){
-    div[IX(id.x, id.x)] =
-                    (-0.5f *
+    float h = 1.0/float(N)*dt;
+    if(id.x>0 && id.x < N && id.y > 0 && id.y < N ){
+        div[IX(id.x, id.y)] = -0.5 *h*
                     (velocX[IX(id.x + 1, id.y)] -
                         velocX[IX(id.x - 1, id.y)] +
                         velocY[IX(id.x, id.y + 1)] -
-                        velocY[IX(id.x, id.y - 1)])) /
-                    N;
-    p[IX(id.x,id.y)];
+                        velocY[IX(id.x, id.y - 1)]);
+    }
+    
+    p[IX(id.x,id.y)] = 0;
     setBnd(id,0,div);
-    setBnd(id,0,p);
+    setBnd(id,0,p); 
 
+    
 }
 void linSolveP(uint3 id,RWStructuredBuffer<float> p, RWStructuredBuffer<float> div){
-    p[IX(id.x, id.y)] =(div[IX(id.x, id.y)] + (p[IX(id.x + 1, id.y)] +
-    p[IX(id.x - 1, id.y)] +
-    p[IX(id.x, id.y + 1)] +
-    p[IX(id.x, id.y - 1)])) / 4;
+    if(id.x>0 && id.x < N && id.y > 0 && id.y < N ){
+        p[IX(id.x, id.y)] = (div[IX(id.x, id.y)] + (p[IX(id.x + 1, id.y)] +
+        p[IX(id.x - 1, id.y)] +
+        p[IX(id.x, id.y + 1)] +
+        p[IX(id.x, id.y - 1)])) / 4.0;
+    }
     setBnd(id,0,p);
 }
 void gradientCalc(uint3 id,RWStructuredBuffer<float> velocX, RWStructuredBuffer<float> velocY, RWStructuredBuffer<float> p){
-    velocX[IX(id.x, id.y)] -= 0.5f * (p[IX(id.x + 1, id.y)] - p[IX(id.x - 1, id.y)]) * N;
-    velocY[IX(id.x, id.y)] -= 0.5f * (p[IX(id.x, id.y + 1)] - p[IX(id.x, id.y - 1)]) * N;
+    if(id.x>0 && id.x < N && id.y > 0 && id.y < N ){
+        velocX[IX(id.x, id.y)] -= 0.5 * (p[IX(id.x + 1, id.y)] - p[IX(id.x - 1, id.y)]) * N;
+        velocY[IX(id.x, id.y)] -= 0.5 * (p[IX(id.x, id.y + 1)] - p[IX(id.x, id.y - 1)]) * N;
+    }
     setBnd(id,1,velocX);
     setBnd(id,2,velocY);
 }
@@ -136,12 +156,19 @@ void CSMain (uint3 id : SV_DispatchThreadID)
     // TODO: insert actual code here!
     
     Result[id.xy] = densityNew[IX(id.x,id.y)] ;
+    /*
+    if(id.x == 0){
+        Result[id.xy] = float4(1,0,0,0);
+    }
+    if(id.y == 0){
+        Result[id.xy] = float4(0,0,1,0);
+    }*/
 }
 [numthreads(8,8,1)]
 void DensityDiffusion(uint3 id : SV_DispatchThreadID)
 {
     // TODO: insert actual code here!
-    diffusion(id,0,densityOld,densityNew,densityDiffusion);
+    diffusion(id,0,densityNew,densityOld,densityDiffusion);
    
 }
 [numthreads(8,8,1)]
@@ -150,8 +177,8 @@ void DensityAdvection(uint3 id : SV_DispatchThreadID){
 }
 [numthreads(8,8,1)]
 void VelocityDiffusion(uint3 id : SV_DispatchThreadID){
-    diffusion(id,1,velocityOldX,velocityNewX,velocityDiffusion);
-    diffusion(id,2,velocityOldY,velocityNewY,velocityDiffusion);
+    diffusion(id,1,velocityNewX,velocityOldX,velocityDiffusion);
+    diffusion(id,2,velocityNewY,velocityOldY,velocityDiffusion);
 }
 [numthreads(8,8,1)]
 void VelocityAdvection(uint3 id : SV_DispatchThreadID){
@@ -159,9 +186,27 @@ void VelocityAdvection(uint3 id : SV_DispatchThreadID){
     advection(id,velocityNewY,velocityOldY,velocityOldX,velocityOldY,dt,2);
 }
 [numthreads(8,8,1)]
-void findDivergence(uint3 id : SV_DispatchThreadID){
-
+void SwapDensity(uint3 id : SV_DispatchThreadID){
+    swap(id,densityOld,densityNew);
 }
+[numthreads(8,8,1)]
+void SwapVelocity(uint3 id : SV_DispatchThreadID){
+    swap(id,velocityOldX,velocityNewX);
+    swap(id,velocityOldY,velocityNewY);
+}
+[numthreads(8,8,1)]
+void findDivergence(uint3 id: SV_DispatchThreadID){
+    divergence(id,velocityNewX,velocityNewY,velocityOldX,velocityOldY);
+}
+[numthreads(8,8,1)]
+void solveP(uint3 id: SV_DispatchThreadID){
+    linSolveP(id, velocityOldX, velocityOldY);
+}
+[numthreads(8,8,1)]
+void solveGradient(uint3 id: SV_DispatchThreadID){
+    gradientCalc(id,velocityNewX,velocityNewY,velocityOldX);
+}
+
 //find divergence
 //find p x 20
 //solve gradient
