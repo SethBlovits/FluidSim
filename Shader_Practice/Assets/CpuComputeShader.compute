@@ -9,6 +9,7 @@
 #pragma kernel findDivergence;
 #pragma kernel solveP;
 #pragma kernel solveGradient;
+#pragma kernel addSource;
 //#pragma kernel diffusionDensity
 // Create a RenderTexture with enableRandomWrite flag and set it
 // with cs.SetTexture
@@ -29,6 +30,9 @@ float N;
 float dt;
 float densityDiffusion;
 float velocityDiffusion;
+float vX;
+float vY;
+float dens;
 int IX(uint x,uint y){
     float N = width;
     return x+y*N;
@@ -42,23 +46,23 @@ void swap(uint3 id , RWStructuredBuffer<float> old, RWStructuredBuffer<float> ne
 void setBnd(uint3 id, uint b, RWStructuredBuffer<float> x){
     
     x[IX(id.x, 0)] = b == 2 ? -x[IX(id.x, 1)] : x[IX(id.x, 1)];
-    x[IX(id.x, N)] = b == 2 ? -x[IX(id.x, N - 1)] : x[IX(id.x, N - 1)];
+    x[IX(id.x, N-1)] = b == 2 ? -x[IX(id.x, N - 2)] : x[IX(id.x, N - 2)];
     
     
     x[IX(0, id.y)] = b == 1 ? -x[IX(1, id.y)] : x[IX(1, id.y)];
-    x[IX(N, id.y)] = b == 1 ? -x[IX(N - 1, id.y)] : x[IX(N - 1, id.y)];
+    x[IX(N-1, id.y)] = b == 1 ? -x[IX(N - 2, id.y)] : x[IX(N - 2, id.y)];
     
     if(id.x == 0 && id.y == 0){
          x[IX(0, 0)] = 0.5 * (x[IX(1, 0)] + x[IX(0, 1)]);
     }
-    if(id.x == 0 && id.y == N){
-        x[IX(0, N)] = 0.5 * (x[IX(1, N)] + x[IX(0, N - 1)]);
+    if(id.x == 0 && id.y == N-1){
+        x[IX(0, N-1)] = 0.5 * (x[IX(1, N-1)] + x[IX(0, N - 2)]);
     }
-    if(id.x == N && id.y == 0){
-        x[IX(N, 0)] = 0.5 * (x[IX(N - 1, 0)] + x[IX(N, 1)]);
+    if(id.x == N-1 && id.y == 0){
+        x[IX(N-1, 0)] = 0.5 * (x[IX(N - 2, 0)] + x[IX(N-1, 1)]);
     }
-    if(id.x == N && id.y == N){
-        x[IX(N , N)] = 0.5 * (x[IX(N - 1, N)] + x[IX(N , N - 1)]);
+    if(id.x == N-1 && id.y == N-1){
+        x[IX(N-1 , N-1)] = 0.5 * (x[IX(N - 2, N-1)] + x[IX(N-1 , N - 2)]);
     } 
     
 }
@@ -157,10 +161,10 @@ void CSMain (uint3 id : SV_DispatchThreadID)
     
     Result[id.xy] = densityNew[IX(id.x,id.y)] ;
     /*
-    if(id.x == 0){
+    if(id.x == N-1){
         Result[id.xy] = float4(1,0,0,0);
     }
-    if(id.y == 0){
+    if(id.y == N-1){
         Result[id.xy] = float4(0,0,1,0);
     }*/
 }
@@ -206,7 +210,13 @@ void solveP(uint3 id: SV_DispatchThreadID){
 void solveGradient(uint3 id: SV_DispatchThreadID){
     gradientCalc(id,velocityNewX,velocityNewY,velocityOldX);
 }
-
-//find divergence
+[numthreads(8,8,1)]
+void addSource(uint3 id: SV_DispatchThreadID){
+    if(id.x == N/2 && id.y == N/2){
+        densityNew[IX(id.x,id.y)] = dens;
+        velocityNewX[IX(id.x,id.y)] = vX;
+        velocityNewY[IX(id.x,id.y)] = vY;
+    }
+}
 //find p x 20
 //solve gradient
