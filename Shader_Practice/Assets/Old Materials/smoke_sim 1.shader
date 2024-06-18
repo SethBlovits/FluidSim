@@ -53,7 +53,7 @@ Shader "CustomRenderTexture/smoke_sim 1"
         
         float2 c = tex2D(_SelfTexture2D, uv);//c is the current center pixel
 
-        float p = 
+        //float p = 
     }
     float4 frag(v2f_customrendertexture IN) : SV_Target
     {

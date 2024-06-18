@@ -10,19 +10,13 @@
 #pragma kernel solveP;
 #pragma kernel solveGradient;
 #pragma kernel addSource;
-//#pragma kernel diffusionDensity
-// Create a RenderTexture with enableRandomWrite flag and set it
-// with cs.SetTexture
+
 RWStructuredBuffer<float> densityNew;
 RWStructuredBuffer<float> densityOld;
 RWStructuredBuffer<float> velocityNewX;
 RWStructuredBuffer<float> velocityNewY;
 RWStructuredBuffer<float> velocityOldX;
 RWStructuredBuffer<float> velocityOldY;
-RWStructuredBuffer<float> delV;
-RWStructuredBuffer<float> P; 
-
-//RWStructuredBuffer
 RWTexture2D<float4> Result;
 float width;
 float height;
@@ -33,6 +27,9 @@ float velocityDiffusion;
 float vX;
 float vY;
 float dens;
+int xCoord;
+int yCoord;
+float4 Color;
 int IX(uint x,uint y){
     float N = width;
     return x+y*N;
@@ -67,7 +64,7 @@ void setBnd(uint3 id, uint b, RWStructuredBuffer<float> x){
     
 }
 void diffusion(uint3 id,uint b,RWStructuredBuffer<float> x,RWStructuredBuffer<float> x0,float diff){
-    //need to change scaler
+    
     float scaler = dt* diff * (N-2)*(N-2);
     if(id.x>0 && id.x < N && id.y > 0 && id.y < N ){
         x[IX(id.x,id.y)] = (x0[IX(id.x,id.y)] +  scaler * (x[IX(id.x+1,id.y)] + 
@@ -112,13 +109,11 @@ void advection(uint3 id,RWStructuredBuffer<float> d ,RWStructuredBuffer<float> d
         int j0i = j0;
         int j1i = j1;
 
-        d[IX(id.x, id.y)] =
+        d[IX(id.x, id.y)] = 
             s0 * (t0 * d0[IX(i0i, j0i)] + t1 * d0[IX(i0i, j1i)]) +
             s1 * (t0 * d0[IX(i1i, j0i)] + t1 * d0[IX(i1i, j1i)]);
     }
-    //d[IX(id.x, id.y)] = d0[id.x-(dt * (N - 2)*velocX[IX(id.x, id.y)]),id.y-(dt * (N - 2)*velocY[IX(id.x, id.y)])];
     setBnd(id,b,d);
-    //set_bnd(b, d);
 }
 void divergence(uint3 id,RWStructuredBuffer<float> velocX, RWStructuredBuffer<float> velocY, RWStructuredBuffer<float> p, RWStructuredBuffer<float> div){
     float h = 1.0/float(N)*dt;
@@ -133,8 +128,6 @@ void divergence(uint3 id,RWStructuredBuffer<float> velocX, RWStructuredBuffer<fl
     p[IX(id.x,id.y)] = 0;
     setBnd(id,0,div);
     setBnd(id,0,p); 
-
-    
 }
 void linSolveP(uint3 id,RWStructuredBuffer<float> p, RWStructuredBuffer<float> div){
     if(id.x>0 && id.x < N && id.y > 0 && id.y < N ){
@@ -153,25 +146,17 @@ void gradientCalc(uint3 id,RWStructuredBuffer<float> velocX, RWStructuredBuffer<
     setBnd(id,1,velocX);
     setBnd(id,2,velocY);
 }
-
 [numthreads(8,8,1)]
 void CSMain (uint3 id : SV_DispatchThreadID)
 {
-    // TODO: insert actual code here!
     
-    Result[id.xy] = densityNew[IX(id.x,id.y)] ;
-    /*
-    if(id.x == N-1){
-        Result[id.xy] = float4(1,0,0,0);
-    }
-    if(id.y == N-1){
-        Result[id.xy] = float4(0,0,1,0);
-    }*/
+    Result[id.xy] = densityNew[IX(id.x,id.y)];
+    densityNew[IX(id.x,id.y)] = densityNew[IX(id.x,id.y)]*.995;
+
 }
 [numthreads(8,8,1)]
 void DensityDiffusion(uint3 id : SV_DispatchThreadID)
 {
-    // TODO: insert actual code here!
     diffusion(id,0,densityNew,densityOld,densityDiffusion);
    
 }
@@ -212,11 +197,14 @@ void solveGradient(uint3 id: SV_DispatchThreadID){
 }
 [numthreads(8,8,1)]
 void addSource(uint3 id: SV_DispatchThreadID){
-    if(id.x == N/2 && id.y == N/2){
-        densityNew[IX(id.x,id.y)] = dens;
-        velocityNewX[IX(id.x,id.y)] = vX;
-        velocityNewY[IX(id.x,id.y)] = vY;
+    if(id.x == xCoord && id.y == yCoord){
+        for(int i = -2;i<=2;i++){
+            for(int j = -2;j<=2;j++){
+                densityNew[IX(id.x+i,id.y+j)] += dens;
+                velocityNewX[IX(id.x+i,id.y+j)] += vX;
+                velocityNewY[IX(id.x+i,id.y+j)] += vY;
+            }
+        } 
     }
 }
-//find p x 20
-//solve gradient
+

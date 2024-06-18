@@ -12,6 +12,9 @@ public class processingscript : MonoBehaviour
     public float velocityX;
     public float velocityY;
     public float DyeDensity;
+    public Color color;
+    Vector2 prevPosition;
+    
     float[] Vx;
     float[] Vy;
     float[] Vx0;
@@ -36,197 +39,25 @@ public class processingscript : MonoBehaviour
     [SerializeField]
     ComputeShader Compute;
     
-
-
-
-    int IX(int x, int y) {
-        return x + y * N;
-    }
-    void diffuse(int b,float[]x,float[]x0,float diff,float dt){
-        float a = dt*diff*(N-2)*(N-2);
-        lin_solve(b, x, x0, a, 1 + 4 * a);
-    }
-    void lin_solve(int b, float[]x, float[]x0, float a, float c) {
-        float cRecip = 1.0f / c;
-        for (int t = 0; t < 20; t++) {
-            for (int j = 1; j < N - 1; j++) {
-                for (int  i = 1; i < N - 1; i++) {
-                    x[IX(i, j)] =
-                    (x0[IX(i, j)] +
-                        a *
-                        (x[IX(i + 1, j)] +
-                            x[IX(i - 1, j)] +
-                            x[IX(i, j + 1)] +
-                            x[IX(i, j - 1)])) *
-                    cRecip;
-                }
-            }
-        set_bnd(b, x);
-        }
-    }
-    void project(float[] velocX, float[] velocY, float[] p, float[] div) {
-        
-        for (int j = 1; j < N - 1; j++) {
-            for (int i = 1; i < N - 1; i++) {
-                div[IX(i, j)] =
-                    (-0.5f *
-                    (velocX[IX(i + 1, j)] -
-                        velocX[IX(i - 1, j)] +
-                        velocY[IX(i, j + 1)] -
-                        velocY[IX(i, j - 1)])) /
-                    N;
-                p[IX(i, j)] = 0;
-                delV[IX(i, j)] = div[IX(i, j)]; 
-            }
-        }
-        
-        set_bnd(0, div);
-        set_bnd(0, p);
-
-        lin_solve(0, p, div, 1, 4);
-
-        for (int j = 1; j < N - 1; j++) {
-            for (int i = 1; i < N - 1; i++) {
-                velocX[IX(i, j)] -= 0.5f * (p[IX(i + 1, j)] - p[IX(i - 1, j)]) * N;
-                velocY[IX(i, j)] -= 0.5f * (p[IX(i, j + 1)] - p[IX(i, j - 1)]) * N;
-            }
-        }
-
-        set_bnd(1, velocX);
-        set_bnd(2, velocY);
-    }
-    void mod_project(float[] velocX, float[] velocY, float[] p, float[] div) {
-        
-        /*for (int j = 1; j < N - 1; j++) {
-            for (int i = 1; i < N - 1; i++) {
-                div[IX(i, j)] =
-                    (-0.5f *
-                    (velocX[IX(i + 1, j)] -
-                        velocX[IX(i - 1, j)] +
-                        velocY[IX(i, j + 1)] -
-                        velocY[IX(i, j - 1)])) /
-                    N;
-                p[IX(i, j)] = 0;
-            }
-        }*/
-       
-        //set_bnd(0, div);
-        //set_bnd(0, p);
-
-        lin_solve(0, p, div, 1, 4);
-        
-        for (int j = 1; j < N - 1; j++) {
-            for (int i = 1; i < N - 1; i++) {
-                velocX[IX(i, j)] -= 0.5f * (p[IX(i + 1, j)] - p[IX(i - 1, j)]) * N;
-                velocY[IX(i, j)] -= 0.5f * (p[IX(i, j + 1)] - p[IX(i, j - 1)]) * N;
-            }
-        }
-
-        set_bnd(1, velocX);
-        set_bnd(2, velocY);
-    }
-    void advect(int b, float[] d, float[] d0, float[] velocX, float[] velocY, float dt) {
-        float i0, i1, j0, j1;
-
-        float dtx = dt * (N - 2);
-        float dty = dt * (N - 2);
-
-        float s0, s1, t0, t1;
-        float tmp1, tmp2, x, y;
-
-        float Nfloat = N - 2;
-        float ifloat, jfloat;
-        int i, j;
-
-        for (j = 1, jfloat = 1; j < N - 1; j++, jfloat++) {
-            for (i = 1, ifloat = 1; i < N - 1; i++, ifloat++) {
-                tmp1 = dtx * velocX[IX(i, j)];
-                tmp2 = dty * velocY[IX(i, j)];
-                x = ifloat - tmp1;
-                y = jfloat - tmp2;
-
-                if (x < 0.5) x = 0.5f;
-                if (x > Nfloat + 0.5) x = Nfloat + 0.5f;
-                i0 = Mathf.Floor(x);
-                i1 = i0 + 1.0f;
-                if (y < 0.5) y = 0.5f;
-                if (y > Nfloat + 0.5f) y = Nfloat + 0.5f;
-                j0 = Mathf.Floor(y);
-                j1 = j0 + 1.0f;
-
-                s1 = x - i0;
-                //Debug.Log(s1);
-                s0 = 1.0f - s1;
-                t1 = y - j0;
-                t0 = 1.0f - t1;
-
-                int i0i = (int)i0;
-                int i1i = (int)i1;
-                int j0i = (int)j0;
-                int j1i = (int)j1;
-
-                d[IX(i, j)] =
-                    s0 * (t0 * d0[IX(i0i, j0i)] + t1 * d0[IX(i0i, j1i)]) +
-                    s1 * (t0 * d0[IX(i1i, j0i)] + t1 * d0[IX(i1i, j1i)]);
-            }
-        }
-
-        set_bnd(b, d);
-    }
-    void set_bnd(int b, float[] x) {
-        for (int i = 1; i < N - 1; i++) {
-            x[IX(i, 0)] = b == 2 ? -x[IX(i, 1)] : x[IX(i, 1)];
-            x[IX(i, N - 1)] = b == 2 ? -x[IX(i, N - 2)] : x[IX(i, N - 2)];
-        }
-        for (int j = 1; j < N - 1; j++) {
-            x[IX(0, j)] = b == 1 ? -x[IX(1, j)] : x[IX(1, j)];
-            x[IX(N - 1, j)] = b == 1 ? -x[IX(N - 2, j)] : x[IX(N - 2, j)];
-        }
-
-        x[IX(0, 0)] = 0.5f * (x[IX(1, 0)] + x[IX(0, 1)]);
-        x[IX(0, N - 1)] = 0.5f * (x[IX(1, N - 1)] + x[IX(0, N - 2)]);
-        x[IX(N - 1, 0)] = 0.5f * (x[IX(N - 2, 0)] + x[IX(N - 1, 1)]);
-        x[IX(N - 1, N - 1)] = 0.5f * (x[IX(N - 2, N - 1)] + x[IX(N - 1, N - 2)]);
-    }
-    void step(){
-        
-        //velocityNewX.SetData(Vx);
-        //velocityNewY.SetData(Vy);
-        //velocityOldX.SetData(Vx0);
-        //velocityOldY.SetData(Vy0);
+    void step()
+    {
         Compute.Dispatch(10,N/8,N/8,1);
         Compute.Dispatch(6,N/8,N/8,1);
         for(int i = 0;i<20;i++){
             Compute.Dispatch(3,N/8,N/8,1);//diffuse velocity
         }
-        
-        //Compute.Dispatch(6,N/8,N/8,1);
         Compute.Dispatch(7,N/8,N/8,1);
         for(int i = 0;i<20;i++){
             Compute.Dispatch(8,N/8,N/8,1);
         }
         Compute.Dispatch(9,N/8,N/8,1);
         Compute.Dispatch(6,N/8,N/8,1);
-        /*
-        velocityNewX.GetData(Vx);
-        velocityNewY.GetData(Vy);
-        velocityOldX.GetData(Vx0);
-        velocityOldY.GetData(Vy0);
-        project(Vx0, Vy0, Vx, Vy);
-        velocityNewX.SetData(Vx);
-        velocityNewY.SetData(Vy);
-        velocityOldX.SetData(Vx0);
-        velocityOldY.SetData(Vy0);*/
-        //Compute.Dispatch(6,N/8,N/8,1);
         Compute.Dispatch(4,N/8,N/8,1);//advect velocity
-        
         Compute.Dispatch(7,N/8,N/8,1);
-       
         for(int i = 0;i<20;i++){
             Compute.Dispatch(8,N/8,N/8,1);
         }
         Compute.Dispatch(9,N/8,N/8,1);
-
         Compute.Dispatch(5,N/8,N/8,1);//swaps density
         for(int i = 0;i<20;i++){
             Compute.Dispatch(1,N/8,N/8,1);//diffuse density
@@ -234,13 +65,10 @@ public class processingscript : MonoBehaviour
         
         Compute.Dispatch(5,N/8,N/8,1);//swaps density
         Compute.Dispatch(2,N/8,N/8,1);//advect density
-        //Compute.Dispatch(5,N/8,N/8,1);//swaps density
-        
-        
-        
     }
     void Start()
     {   
+        prevPosition = Vector2.zero;
         if(DensityTexture == null){
             DensityTexture = new RenderTexture(N,N,32);
             DensityTexture.enableRandomWrite = true;
@@ -345,34 +173,44 @@ public class processingscript : MonoBehaviour
         Compute.SetBuffer(10,"velocityOldX",velocityOldX);
         Compute.SetBuffer(10,"velocityOldY",velocityOldY);
 
-        
-
-
-
     }
 
-    // Update is called once per frame
     void Update()
-    {
+    {   
+        Compute.SetVector("Color",Color.HSVToRGB(Mathf.Abs(Mathf.Sin(Time.time*6.28f*.1f)),1,1));
+        if(Input.GetKey(KeyCode.Mouse0)){
+            Vector3 mouse_pos_pixel_coord = Input.mousePosition;
+            Vector2 mouse_pos_normalized  = cam.ScreenToViewportPoint(mouse_pos_pixel_coord);
+            mouse_pos_normalized  = new Vector2(Mathf.Clamp01(mouse_pos_normalized.x), Mathf.Clamp01(mouse_pos_normalized.y));
+            Vector2 mouse_sim = new Vector2((int)(mouse_pos_normalized.x*N),(int)(mouse_pos_normalized.y*N));
+            Vector2 mouse_velocity = (mouse_sim/50.0f-prevPosition);
+            Compute.SetInt("xCoord",(int)mouse_sim.x);
+            Compute.SetInt("yCoord",(int)mouse_sim.y);
+            Compute.SetFloat("dens",DyeDensity);
+            Compute.SetFloat("vX",mouse_velocity.x);
+            Compute.SetFloat("vY",mouse_velocity.y);
+            //Debug.Log(mouse_sim.x);
+            prevPosition = mouse_sim/50.0f;
+        }
+        if(!Input.anyKey){
+            Vector3 mouse_pos_pixel_coord = Input.mousePosition;
+            Vector2 mouse_pos_normalized  = cam.ScreenToViewportPoint(mouse_pos_pixel_coord);
+            mouse_pos_normalized  = new Vector2(Mathf.Clamp01(mouse_pos_normalized.x), Mathf.Clamp01(mouse_pos_normalized.y));
+            Vector2 mouse_sim = new Vector2((int)(mouse_pos_normalized.x*N),(int)(mouse_pos_normalized.y*N));
+            Compute.SetFloat("dens",0);
+            Compute.SetFloat("vX",0);
+            Compute.SetFloat("vY",0);
+            prevPosition = mouse_sim/50.0f;
+        }
         Compute.SetFloat("dt",dt*Time.deltaTime);
-        Compute.SetFloat("vX",velocityX);
-        Compute.SetFloat("dens",DyeDensity);
-        Compute.SetFloat("vY",velocityY);
         Compute.SetFloat("densityDiffusion",diffusion);
         Compute.SetFloat("velocityDiffusion",viscosity);
-        //s[IX(N/2,N/2)] = 10;
-        //Vx[IX(N/2,N/2)] = -1;
-        //velocityNewX.SetData(Vx);
-        //densityNew.SetData(density);
-        //densityOld.SetData(s);
         step();
-        //density[IX(N/2,N/2)] += 1500;
-        
-        //velocityNewX.SetData(Vx);
         
         Compute.Dispatch(0,N/8,N/8,1);
         Graphics.Blit(DensityTexture,ouputTexture);
     }
+   
     private void OnDestroy() {
         densityNew.Release();
         densityOld.Release();
