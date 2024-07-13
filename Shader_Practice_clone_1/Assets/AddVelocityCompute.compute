@@ -1,0 +1,94 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+RWTexture2D<float4> Velocity;
+RWTexture2D<float4> Diffusion;
+RWTexture2D<float> p;
+uint2 pos;
+float2 vel;
+float diffusionFactor;
+float diffuseOn;
+
+int indexFromId(uint3 id){
+    return id.x + 1920.0 * (id.y + 1080.0 * id.z);
+}
+int indexFromIdCoords(uint x,uint y, uint z){
+    return x + 1920.0 * (y + 1080.0 * z);
+}
+
+void diffusion(uint3 id){
+    for(int i = 0; i<20; i++){
+        Diffusion[id.xy] = (Diffusion[uint2(id.x,id.y)] +  diffusionFactor * ((Diffusion[uint2(id.x+1,id.y)] + 
+        Diffusion[uint2(id.x-1,id.y)]+
+        Diffusion[uint2(id.x,id.y+1)]+
+        Diffusion[uint2(id.x,id.y-1)])))/(1+4*diffusionFactor);
+    }
+}
+void advection(uint3 id){
+    float velX = Velocity[id.xy].x;
+    float velY = Velocity[id.xy].y;
+    /*
+    if(Velocity[id.xy].z){
+        velX*=-1;
+    }
+    if(Velocity[id.xy].w){
+        velY*=-1;
+    }*/
+    Diffusion[id.xy] = Diffusion[uint2(id.x-velX,id.y-velY)]; 
+}
+void divergence(uint3 id){
+    float delV = .1*(Velocity[uint2(id.x+1,id.y)].x-Velocity[uint2(id.x-1,id.y)].x+Velocity[uint2(id.x,id.y+1)].y-Velocity[uint2(id.x,id.y-1)].y)/2.0;
+    for(int i = 0;i<20;i++){
+        p[id.xy] = ((p[uint2(id.x-1,id.y)]+p[uint2(id.x+1,id.y)]+p[uint2(id.x,id.y-1)]+p[uint2(id.x,id.y+1)]) - delV)/4.0;
+    }
+    Velocity[id.xy] -= float4((p[uint2(id.x+1,id.y)]-p[uint2(id.x-1,id.y)])/2.0,(p[uint2(id.x,id.y+1)]-p[uint2(id.x,id.y+1)])/2.0,0,0);
+    
+}
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    // TODO: insert actual code here!
+    //float x = id.x/1920.0;
+    //float y = id.y/1080.0;
+
+    //float negativeX=0;
+    //float negativeY=0;
+    if(id.x == pos.x && id.y == pos.y){
+        /*
+        if(vel.x < 0 ){
+            vel.x *= -1;
+            negativeX = 1;
+        }
+        if(vel.y < 0){
+            vel.y *= -1;
+            negativeY = 1;
+        }
+        */
+        Velocity[uint2(id.x,id.y)] = float4(vel.x,vel.y,0,0);
+        Diffusion[uint2(id.x,id.y)] = float4(1*diffuseOn,1*diffuseOn,1*diffuseOn,0);
+        for(int w = 1;w<=20;w++){
+            for(int h = 1;h<=20;h++){
+                Velocity[uint2(id.x+w,id.y+h)] = float4(vel.x,vel.y,0,0);
+                Velocity[uint2(id.x-w,id.y+h)] = float4(vel.x,vel.y,0,0);
+                Velocity[uint2(id.x-w,id.y-h)] = float4(vel.x,vel.y,0,0);
+                Velocity[uint2(id.x+w,id.y-h)] = float4(vel.x,vel.y,0,0);
+                /*
+                Diffusion[uint2(id.x+w,id.y+h)] = float4(1*diffuseOn,1*diffuseOn,1*diffuseOn,0);
+                Diffusion[uint2(id.x-w,id.y+h)] = float4(1*diffuseOn,1*diffuseOn,1*diffuseOn,0);
+                Diffusion[uint2(id.x-w,id.y-h)] = float4(1*diffuseOn,1*diffuseOn,1*diffuseOn,0);
+                Diffusion[uint2(id.x+w,id.y-h)] = float4(1*diffuseOn,1*diffuseOn,1*diffuseOn,0);
+                */
+            }
+        }
+        
+        
+    }
+
+    diffusion(id);
+    advection(id);
+    divergence(id);
+    
+}
+

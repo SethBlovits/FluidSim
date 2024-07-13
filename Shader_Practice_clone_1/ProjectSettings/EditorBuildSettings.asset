@@ -1,0 +1,17 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1045 &1
+EditorBuildSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Scenes:
+  - enabled: 0
+    path: Assets/Scenes/SampleScene.unity
+    guid: 99c9720ab356a0642a771bea13969a05
+  - enabled: 0
+    path: Assets/ComputeSHaderFluid.unity
+    guid: 943ccdec8424f8a45afbd69c635b2ee8
+  - enabled: 1
+    path: Assets/CPUFluid.unity
+    guid: 886b2f52778212a4badd7fa00b8ccac6
+  m_configObjects: {}

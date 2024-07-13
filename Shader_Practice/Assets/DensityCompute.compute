@@ -76,6 +76,7 @@ void diffusion(uint3 id,uint b,RWStructuredBuffer<float> x,RWStructuredBuffer<fl
     x[IX(id.x,id.y-1)]))/(1+4*scaler);
     setBnd(id,b,x);
 }
+
 void advection(uint3 id,RWStructuredBuffer<float> d ,RWStructuredBuffer<float> d0,RWStructuredBuffer<float> velocX, RWStructuredBuffer<float> velocY, float dt,uint b){
     float i0, i1, j0, j1;
 
